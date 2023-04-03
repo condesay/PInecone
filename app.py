@@ -69,11 +69,11 @@ with st.expander("Options", expanded=False):
 
 if st.button("Upload"):
     # OpenAI API key
-    openai.api_key = os.getenv('OPENAI_API_KEY')
+    openai.api_key = os.getenv('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')
 
     # get the Pinecone API key and environment
-    pinecone_api = os.getenv('PINECONE_API_KEY')
-    pinecone_env = os.getenv('PINECONE_ENVIRONMENT')
+    pinecone_api = os.getenv('35e4a6df-dac9-4add-838f-17468f344783')
+    pinecone_env = os.getenv('us-west4-gcp')
 
     pinecone.init(api_key=pinecone_api, environment=pinecone_env)
 
@@ -86,12 +86,12 @@ if st.button("Upload"):
             st.write("Deleting existing index...")
             pinecone.delete_index("blog-index")
             st.write("Creating new index...")
-            pinecone.create_index("blog-index", 1536, metadata_config= {"indexed": ["url", "chunk-id"]})
+            pinecone.create_index("openai", 1536, metadata_config= {"indexed": ["url", "chunk-id"]})
         else:
             st.write("Reusing existing index.")
 
     # set index; must exist
-    index = pinecone.Index('blog-index')
+    index = pinecone.Index('openai')
 
     # create recursive text splitter
     text_splitter = RecursiveCharacterTextSplitter(
