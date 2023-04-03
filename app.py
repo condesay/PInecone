@@ -1,27 +1,21 @@
-import feedparser
 import os
 import pinecone
 import openai
-import requests
-from bs4 import BeautifulSoup
-from retrying import retry
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 import tiktoken
-import hashlib
 import streamlit as st
 
 # check environment variables
-if os.getenv('PINECONE_API_KEY') is None:
-    st.stop("PINECONE_API_KEY not set. Please set this environment variable and restart the app.")
-if os.getenv('PINECONE_ENVIRONMENT') is None:
-    st.stop("PINECONE_ENVIRONMENT not set. Please set this environment variable and restart the app.")
-if os.getenv('OPENAI_API_KEY') is None:
-    st.stop("OPENAI_API_KEY not set. Please set this environment variable and restart the app.")
+if os.getenv('35e4a6df-dac9-4add-838f-17468f344783') is None:
+    st.error("PINECONE_API_KEY not set. Please set this environment variable and restart the app.")
+if os.getenv('us-west4-gcp') is None:
+    st.error("PINECONE_ENVIRONMENT not set. Please set this environment variable and restart the app.")
+if os.getenv('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') is None:
+    st.error("OPENAI_API_KEY not set. Please set this environment variable and restart the app.")
 
 # use cl100k_base tokenizer for gpt-3.5-turbo and gpt-4
 tokenizer = tiktoken.get_encoding('cl100k_base')
 
-# create the length function used by the RecursiveCharacterTextSplitter
+
 def tiktoken_len(text):
     tokens = tokenizer.encode(
         text,
@@ -29,126 +23,116 @@ def tiktoken_len(text):
     )
     return len(tokens)
 
-@retry(wait_exponential_multiplier=1000, wait_exponential_max=10000)
-def create_embedding(article):
-    # vectorize with OpenAI text-emebdding-ada-002
-    embedding = openai.Embedding.create(
-        input=article,
-        model="text-embedding-ada-002"
-    )
+# create a title for the app
+st.title("Search blog feed 🔎")
 
-    return embedding["data"][0]["embedding"]
+# create a text input for the user query
+your_query = st.text_input("What would you like to know?")
+model = st.selectbox("Model", ["gpt-3.5-turbo", "gpt-4"])
 
-st.title("Upload blog feed to Pinecone 🔎")
+with st.expander("Options"):
 
-st.write("Click Upload to upload baeke.info posts to Pinecone in chunks.")
+    max_chunks = 5
+    if model == "gpt-4":
+        max_chunks = 15
 
-url = st.text_input("RSS feed", "https://blog.baeke.info/feed/")
+    max_reply_tokens = 1250
+    if model == "gpt-4":
+        max_reply_tokens = 2000
 
-# Parse the RSS feed with feedparser
-st.write("Parsing RSS feed: ", url)
+    col1, col2 = st.columns(2)
 
-try:
-    feed = feedparser.parse(url)
-except Exception as e:
-    st.exception(e)
-    st.stop()
+    # model dropdown
+    with col1:
+        chunks = st.slider("Number of chunks", 1, max_chunks, 5)
+        temperature = st.slider("Temperature", 0.0, 1.0, 0.0)
 
-# get number of entries in feed
-entries = len(feed.entries)
-if entries == 0:
-    st.write("Error processing feed. Stopping...")
-    st.stop()
-st.write("Number of entries: ", entries)
+    with col2:
+        reply_tokens = st.slider("Reply tokens", 750, max_reply_tokens, 750)
+    
 
-with st.expander("Options", expanded=False):
-    chunk_size = st.slider("Chunk size", 100, 600, 400)
-    chunk_overlap = st.slider("Chunk overlap", 0, 60, 20)
-    blog_entries = st.slider("Blog entries", 1, entries, entries)
-    recreate = st.checkbox("Recreate index", True)
-
-if st.button("Upload"):
-    # OpenAI API key
-    openai.api_key = os.getenv('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')
-
+# create a submit button
+if st.button("Search"):
     # get the Pinecone API key and environment
-    pinecone_api = os.getenv('35e4a6df-dac9-4add-838f-17468f344783')
-    pinecone_env = os.getenv('us-west4-gcp')
+    pinecone_api = os.getenv('PINECONE_API_KEY')
+    pinecone_env = os.getenv('PINECONE_ENVIRONMENT')
 
     pinecone.init(api_key=pinecone_api, environment=pinecone_env)
 
-    if "blog-index" not in pinecone.list_indexes():
-        st.write("Index does not exist. Creating...")
-        pinecone.create_index("blog-index", 1536, metadata_config= {"indexed": ["url", "chunk-id"]})
-    else:
-        st.write("Index already exists.")
-        if recreate:
-            st.write("Deleting existing index...")
-            pinecone.delete_index("blog-index")
-            st.write("Creating new index...")
-            pinecone.create_index("openai", 1536, metadata_config= {"indexed": ["url", "chunk-id"]})
-        else:
-            st.write("Reusing existing index.")
+    # set index
+    index = pinecone.Index('blog-index')
 
-    # set index; must exist
-    index = pinecone.Index('openai')
 
-    # create recursive text splitter
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,  # number of tokens overlap between chunks
-        length_function=tiktoken_len,
-        separators=['\n\n', '\n', ' ', '']
-    )
+    # vectorize your query with openai
+    try:
+        query_vector = openai.Embedding.create(
+            input=your_query,
+            model="text-embedding-ada-002"
+        )["data"][0]["embedding"]
+    except Exception as e:
+        st.error(f"Error calling OpenAI Embedding API: {e}")
+        st.stop()
 
-    # starting the upload process
-    progress_text = "Upload in progress..."
-    my_bar = st.progress(0, text=progress_text)
+    # search for the most similar vector in Pinecone
+    search_response = index.query(
+        top_k=chunks,
+        vector=query_vector,
+        include_metadata=True)
 
-    pinecone_vectors = []
+    # create a list of urls from search_response['matches']['metadata']['url']
+    urls = [item["metadata"]['url'] for item in search_response['matches']]
 
-    with st.expander("Logs", expanded=False):
-        for i, entry in enumerate(feed.entries[:50]):
-            r = requests.get(entry.link)
-            soup = BeautifulSoup(r.text, 'html.parser')
-            article = soup.text
+    # make urls unique
+    urls = list(set(urls))
 
-            st.write("Processing URL: ", entry.link)
+    # create a list of texts from search_response['matches']['metadata']['text']
+    chunk_texts = [item["metadata"]['text'] for item in search_response['matches']]
 
-            # create chunks
-            chunks = text_splitter.split_text(article)
+    # combine texts into one string to insert in prompt
+    all_chunks = "\n".join(chunk_texts)
 
-            # create md5 hash of entry.link
-            url = entry.link
-            url_hash = hashlib.md5(url.encode("utf-8"))       
-            url_hash = url_hash.hexdigest()
+    # show urls of the chunks
+    with st.expander("URLs", expanded=True):
+        for url in urls:
+            st.markdown(f"* {url}")
+    
 
-            number_of_chunks = len(chunks)
+    with st.expander("Chunks"):
+        for i, t in enumerate(chunk_texts):
+            # remove newlines from chunk
+            tokens = tiktoken_len(t)
+            t = t.replace("\n", " ")
+            st.write("Chunk ", i, "(Tokens: ", tokens, ") - ", t[:50] + "...")
+    with st.spinner("Summarizing..."):
+        try:
+            prompt = f"""Answer the following query based on the context below ---: {your_query}
+                                                        Do not answer beyond this context!
+                                                        ---
+                                                        {all_chunks}"""
 
-            # create embeddings for each chunk
-            for j, chunk in enumerate(chunks):
-                st.write("\tCreating embedding for chunk ", j+1, " of ", number_of_chunks)
-                vector = create_embedding(chunk)
 
-                # concatenate hash and j
-                hash_j = url_hash + str(j)
+            # openai chatgpt with article as context
+            # chat api is cheaper than gpt: 0.002 / 1000 tokens
+            response = openai.ChatCompletion.create(
+                model=model,
+                messages=[
+                    { "role": "system", "content":  "You are a truthful assistant!" },
+                    { "role": "user", "content": prompt }
+                ],
+                temperature=temperature,
+                max_tokens=max_reply_tokens
+            )
 
-                # add vector to pinecone_vectors list
-                st.write("\tAdding vector to pinecone_vectors list for chunk ", j+1, " of ", number_of_chunks)
-                pinecone_vectors.append((hash_j, vector, {"url": entry.link, "chunk-id": j, "text": chunk}))
+            st.markdown("### Answer:")
+            st.write(response.choices[0]['message']['content'])
 
-                # upsert every 100 vectors
-                if len(pinecone_vectors) % 100 == 0:
-                    st.write("Upserting batch of 100 vectors...")
-                    upsert_response = index.upsert(vectors=pinecone_vectors)
-                    pinecone_vectors = []
-            
-            # update progress bar
-            my_bar.progress((i+1)/entries, text=progress_text + f" {i+1} of {entries}")
+            with st.expander("More information"):
+                st.write("Query: ", your_query)
+                st.write("Full Response: ", response)
 
-    # if there are any vectors left, upsert them
-    if len(pinecone_vectors) > 0:
-        upsert_response = index.upsert(vectors=pinecone_vectors)
-        pinecone_vectors = []
+            with st.expander("Full Prompt"):
+                st.write(prompt)
 
-    my_bar.progress(1.0, text="Upload complete.")
+            st.balloons()
+        except Exception as e:
+            st.error(f"Error with OpenAI Completion: {e}")
