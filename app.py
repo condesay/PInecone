@@ -5,11 +5,11 @@ import tiktoken
 import streamlit as st
 
 # check environment variables
-if os.getenv("35e4a6df-dac9-4add-838f-17468f344783") is None:
+if os.getenv("PINECONE_API_KEY") is None:
     st.error("PINECONE_API_KEY not set. Please set this environment variable and restart the app.")
-if os.getenv("us-west4-gcp") is None:
+if os.getenv("PINECONE_ENVIRONMENT") is None:
     st.error("PINECONE_ENVIRONMENT not set. Please set this environment variable and restart the app.")
-if os.getenv("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") is None:
+if os.getenv("OPENAI_API_KEY") is None:
     st.error("OPENAI_API_KEY not set. Please set this environment variable and restart the app.")
 
 # use cl100k_base tokenizer for gpt-3.5-turbo and gpt-4
