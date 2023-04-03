@@ -54,13 +54,13 @@ with st.expander("Options"):
 # create a submit button
 if st.button("Search"):
     # get the Pinecone API key and environment
-    pinecone_api = os.getenv('PINECONE_API_KEY')
-    pinecone_env = os.getenv('PINECONE_ENVIRONMENT')
+    pinecone_api = os.getenv('35e4a6df-dac9-4add-838f-17468f344783')
+    pinecone_env = os.getenv('us-west4-gcp')
 
     pinecone.init(api_key=pinecone_api, environment=pinecone_env)
 
     # set index
-    index = pinecone.Index('blog-index')
+    index = pinecone.Index('openai')
 
 
     # vectorize your query with openai
